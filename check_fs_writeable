@@ -1,0 +1,58 @@
+#!/usr/bin/perl -w
+
+use strict;
+use open IO => ":encoding(utf-8)";
+use open ':std';
+
+use IO::File;
+use File::stat;
+use Fcntl;
+
+use Monitoring::Plugin;
+use Getopt::Long::Descriptive;
+use FindBin qw($Bin $Script);
+
+sub is_writeable {
+	my ($path) = @_;
+	my $file=sprintf("%s/.check_fs_writable", $path);
+
+	sysopen my $fh,$file,O_WRONLY|O_CREAT;
+	close $fh;
+
+	my $exists=-e $file;
+
+	unlink($file);
+
+	return $exists;
+}
+
+my ($opt, $usage) = describe_options(
+	"$Script %o <some-arg>",
+	[ 'path|p=s@',		"Path to check" ],
+	[ 'timeout|t=i',	"Timeout", { default => 15 } ],
+	[],
+	[ 'help',               "print usage message and exit", { shortcircuit => 1 } ],
+);
+
+print($usage->text), exit if $opt->help;
+
+my $np = Monitoring::Plugin->new(
+	timeout => $opt->timeout
+);
+
+my $paths;
+if (defined($opt->path)) {
+	$paths=$opt->path;
+} else {
+	$paths=[ "/var/tmp", "/tmp", "/root", "/srv", "/run", "/boot" ];
+}
+
+foreach my $path ( @{$paths} ) {
+	next if (!-e $path);
+	my $writeable=is_writeable($path);
+	$np->add_message(($writeable) ? OK : CRITICAL,
+		sprintf("%s is %s", $path, ($writeable) ? "writeable" : "read-only"));
+}
+
+my ($code, $message) = $np->check_messages();
+$np->plugin_exit( $code, $message );
